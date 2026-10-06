@@ -1,2 +1,5 @@
-HeadsetAutoSwitch.exe
-*.pdb
+bin/
+obj/
+out/
+*.user
+.vs/

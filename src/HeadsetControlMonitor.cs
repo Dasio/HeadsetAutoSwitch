@@ -1,192 +1,187 @@
-// Any headset HeadsetControl (https://github.com/Sapd/HeadsetControl) can read the battery of.
-//
-// Most wireless headsets only answer when asked, so we run `headsetcontrol -b -o json` every few
-// seconds. A battery reading means the headset is on; HeadsetControl's "offline" error means the
-// dongle is there but the headset is off. Timeouts and other errors are ignored (no switch).
-
 using System;
-using System.Collections;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Runtime.Serialization;
 using System.Threading;
-using System.Web.Script.Serialization;
 
-namespace HeadsetAutoSwitch
+namespace HeadsetAutoSwitch;
+
+/// <summary>
+/// Any headset that <see href="https://github.com/Sapd/HeadsetControl">HeadsetControl</see> can read
+/// the battery of. Most wireless headsets only answer when asked, so this runs
+/// <c>headsetcontrol -b -o json</c> every few seconds.
+/// </summary>
+internal sealed class HeadsetControlMonitor : IHeadsetMonitor
 {
-    interface IHeadsetMonitor
+    private const int TimeoutMs = 15_000;
+
+    private readonly string exe;
+    private readonly string extraArgs;
+    private readonly int intervalMs;
+    private readonly Func<string, string, bool> skip;
+    private readonly AutoResetEvent wake = new(false);
+    private volatile bool stopping;
+    private volatile HeadsetReading? last;
+
+    /// <param name="exe">Path to headsetcontrol.exe.</param>
+    /// <param name="extraArgs">Extra arguments, e.g. <c>-d 1b1c:0a51</c> to pick one headset.</param>
+    /// <param name="intervalSeconds">Seconds between checks.</param>
+    /// <param name="skip">Headsets (vendor id, product id) handled by another monitor.</param>
+    public HeadsetControlMonitor(string exe, string extraArgs, int intervalSeconds, Func<string, string, bool> skip)
     {
-        event Action<bool, bool> ConnectionChanged;   // (headset on, state read at startup rather than a change)
-        event Action<int> BatteryChanged;             // percent
-        event Action<bool> PresenceChanged;           // dongle / base station found
-        string Name { get; }
-        string DefaultOutput { get; }                 // device name pattern used when the setting is empty
-        string DefaultMic { get; }
-        void Start();
-        void Stop();
-        void Reopen();                                // e.g. after resume from sleep
+        this.exe = exe;
+        this.extraArgs = extraArgs;
+        intervalMs = Math.Min(Math.Max(intervalSeconds, 2), 3600) * 1000;
+        this.skip = skip;
     }
 
-    class HeadsetControlMonitor : IHeadsetMonitor
+    public event Action<bool, bool>? ConnectionChanged;
+    public event Action<int>? BatteryChanged;
+    public event Action<bool>? PresenceChanged;
+
+    public string Name => last?.Name ?? "Headset";
+    public string DefaultOutput => last is { Product.Length: > 0 } reading ? $"*{reading.Product}*" : "";
+    public string DefaultMic => DefaultOutput;
+
+    /// <summary>headsetcontrol.exe next to the app, in its data folder, or on PATH; null if none.</summary>
+    public static string? Find(string dataDir)
     {
-        public event Action<bool, bool> ConnectionChanged;
-        public event Action<int> BatteryChanged;
-        public event Action<bool> PresenceChanged;
-
-        readonly string exe, extraArgs;
-        readonly int intervalMs;
-        readonly Func<string, string, bool> skip;      // (vendor id, product id) handled elsewhere
-        readonly AutoResetEvent wake = new AutoResetEvent(false);
-        volatile bool stopping;
-        volatile string name = "Headset", product = "";
-
-        public HeadsetControlMonitor(string exe, string extraArgs, int intervalSeconds, Func<string, string, bool> skip)
+        var folders = new[] { AppDomain.CurrentDomain.BaseDirectory, dataDir }
+            .Concat((Environment.GetEnvironmentVariable("PATH") ?? "").Split(';'))
+            .Select(folder => folder.Trim().Trim('"'))
+            .Where(folder => folder.Length > 0);
+        foreach (var folder in folders)
         {
-            this.exe = exe;
-            this.extraArgs = extraArgs ?? "";
-            this.intervalMs = Math.Max(2, intervalSeconds) * 1000;
-            this.skip = skip;
-        }
-
-        public string Name { get { return name; } }
-        public string DefaultOutput { get { return product.Length > 0 ? "*" + product + "*" : ""; } }
-        public string DefaultMic { get { return product.Length > 0 ? "*" + product + "*" : ""; } }
-
-        // Looks next to the app, in the app's data folder, then on PATH. Null if not found.
-        public static string Find(string dataDir)
-        {
-            var candidates = new List<string>
+            try
             {
-                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "headsetcontrol.exe"),
-                Path.Combine(dataDir, "headsetcontrol.exe"),
-            };
-            foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(';'))
-                if (dir.Trim().Length > 0) candidates.Add(Path.Combine(dir.Trim(), "headsetcontrol.exe"));
-            foreach (var c in candidates)
-                if (File.Exists(c)) return c;
-            return null;
-        }
-
-        public void Start()
-        {
-            var t = new Thread(Run) { IsBackground = true, Name = "HeadsetControlMonitor" };
-            t.Start();
-        }
-
-        public void Stop() { stopping = true; wake.Set(); }
-        public void Reopen() { wake.Set(); }
-
-        void Run()
-        {
-            bool? present = null, on = null;
-            int offlineReadings = 0;
-            Log.Write("HeadsetControl: using " + exe);
-            while (!stopping)
+                var candidate = Path.Combine(folder, "headsetcontrol.exe");
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+            catch (ArgumentException)
             {
-                Reading r = Poll();
-                bool found = r != null;
+                // A malformed PATH entry; ignore it.
+            }
+        }
+
+        return null;
+    }
+
+    public void Start() => new Thread(Run) { IsBackground = true, Name = nameof(HeadsetControlMonitor) }.Start();
+
+    // The thread disposes the wake event when it exits, so it is never disposed under a WaitOne.
+    public void Dispose()
+    {
+        stopping = true;
+        wake.Set();
+    }
+
+    public void Refresh() => wake.Set();
+
+    private void Run()
+    {
+        Log.Write("HeadsetControl: using " + exe);
+        bool? present = null, on = null;
+        var offReadings = 0;
+        while (!stopping)
+        {
+            // A failed run (timeout, crash, unreadable output) tells nothing: keep the current state.
+            if (TryPoll(out var reading))
+            {
+                var found = reading is not null;
                 if (present != found)
                 {
                     present = found;
-                    Log.Write(found ? "HeadsetControl: found " + r.Name : "HeadsetControl: no supported headset, waiting");
-                    if (found) { name = r.Name; product = r.Product; }
-                    if (PresenceChanged != null) PresenceChanged(found);
+                    // After the headset goes missing, report the state again when it's back.
+                    on = null;
+                    offReadings = 0;
+                    Log.Write(found ? $"HeadsetControl: found {reading!.Name}" : "HeadsetControl: no supported headset, waiting");
+                    PresenceChanged?.Invoke(found);
                 }
 
-                if (found && r.On.HasValue)
+                if (reading is { On: { } isOn })
                 {
-                    // One "offline" could be a hiccup while the headset reconnects; wait for a second one.
-                    offlineReadings = r.On.Value ? 0 : offlineReadings + 1;
-                    bool confirmed = r.On.Value || offlineReadings >= 2 || on == null;
-                    if (confirmed && on != r.On.Value)
+                    last = reading;
+                    // A single "off" can be a hiccup while the headset reconnects: wait for a second one.
+                    offReadings = isOn ? 0 : offReadings + 1;
+                    if ((isOn || offReadings >= 2 || on is null) && on != isOn)
                     {
-                        bool first = on == null;
-                        on = r.On.Value;
-                        if (ConnectionChanged != null) ConnectionChanged(on.Value, first);
+                        var initial = on is null;
+                        on = isOn;
+                        ConnectionChanged?.Invoke(isOn, initial);
                     }
-                    if (r.Battery >= 0 && BatteryChanged != null) BatteryChanged(r.Battery);
+
+                    if (reading.Battery >= 0)
+                    {
+                        BatteryChanged?.Invoke(reading.Battery);
+                    }
                 }
-                wake.WaitOne(intervalMs);
+                else if (reading is not null)
+                {
+                    last = reading;
+                }
             }
+
+            wake.WaitOne(intervalMs);
         }
 
-        class Reading
+        wake.Dispose();
+    }
+
+    /// <returns>False when HeadsetControl couldn't be asked; otherwise the reading (null = no headset).</returns>
+    private bool TryPoll(out HeadsetReading? reading)
+    {
+        reading = null;
+        var json = RunHeadsetControl();
+        if (json is null)
         {
-            public string Name, Product;
-            public bool? On;          // null = no verdict (timeout, other error)
-            public int Battery = -1;
+            return false;
         }
 
-        Reading Poll()
+        try
         {
-            string json = RunHeadsetControl();
-            if (json == null) return null;
-            try
+            reading = HeadsetControlOutput.Parse(json, skip);
+            return true;
+        }
+        catch (SerializationException ex)
+        {
+            Log.Write("HeadsetControl: unreadable output: " + ex.Message);
+            return false;
+        }
+    }
+
+    private string? RunHeadsetControl()
+    {
+        var startInfo = new ProcessStartInfo(exe, $"-b -o json {extraArgs}".Trim())
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+        };
+
+        try
+        {
+            using var process = Process.Start(startInfo)!;
+            // Read both pipes concurrently so a full stderr pipe can't block the process.
+            var output = process.StandardOutput.ReadToEndAsync();
+            _ = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(TimeoutMs))
             {
-                var root = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(json);
-                object devices;
-                if (!root.TryGetValue("devices", out devices) || !(devices is IEnumerable)) return null;
-                foreach (var item in (IEnumerable)devices)
-                {
-                    var dev = item as Dictionary<string, object>;
-                    if (dev == null || skip(Str(dev, "id_vendor"), Str(dev, "id_product"))) continue;
-                    object batteryObj;
-                    if (!dev.TryGetValue("battery", out batteryObj)) continue;
-                    var battery = batteryObj as Dictionary<string, object>;
-                    if (battery == null) continue;
-
-                    var r = new Reading { Name = Str(dev, "device"), Product = Str(dev, "product") };
-                    string status = Str(battery, "status");
-                    if (status == "BATTERY_AVAILABLE" || status == "BATTERY_CHARGING")
-                    {
-                        r.On = true;
-                        object level;
-                        if (battery.TryGetValue("level", out level) && level is int) r.Battery = (int)level;
-                    }
-                    else if (BatteryError(dev).IndexOf("offline", StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        r.On = false;
-                    }
-                    return r;
-                }
+                process.Kill();
+                Log.Write($"HeadsetControl: no answer within {TimeoutMs / 1000} s");
+                return null;
             }
-            catch (Exception ex) { Log.Write("HeadsetControl: unreadable output: " + ex.Message); }
+
+            return output.Result;
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            Log.Write("HeadsetControl: cannot run: " + ex.Message);
             return null;
-        }
-
-        static string Str(Dictionary<string, object> d, string key)
-        {
-            object v;
-            return d.TryGetValue(key, out v) && v != null ? v.ToString() : "";
-        }
-
-        static string BatteryError(Dictionary<string, object> dev)
-        {
-            object errors;
-            var e = dev.TryGetValue("errors", out errors) ? errors as Dictionary<string, object> : null;
-            return e == null ? "" : Str(e, "battery");
-        }
-
-        string RunHeadsetControl()
-        {
-            try
-            {
-                var psi = new ProcessStartInfo(exe, ("-b -o json " + extraArgs).Trim())
-                {
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true,
-                };
-                using (var p = Process.Start(psi))
-                {
-                    var output = p.StandardOutput.ReadToEndAsync();
-                    p.StandardError.ReadToEndAsync();
-                    if (!p.WaitForExit(15000)) { try { p.Kill(); } catch { } Log.Write("HeadsetControl: no answer within 15 s"); return null; }
-                    return output.Result;
-                }
-            }
-            catch (Exception ex) { Log.Write("HeadsetControl: cannot run: " + ex.Message); return null; }
         }
     }
 }

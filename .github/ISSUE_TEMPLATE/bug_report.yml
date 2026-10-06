@@ -1,0 +1,38 @@
+name: Bug report
+description: The app doesn't switch, switches to the wrong device, or misbehaves
+labels: [bug]
+body:
+  - type: input
+    id: headset
+    attributes:
+      label: Headset
+      description: Model, and whether you use the built-in Cloud Alpha 2 support or HeadsetControl
+      placeholder: HyperX Cloud Alpha 2 Wireless (built-in)
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: HeadsetAutoSwitch version, Windows version, and HeadsetControl version if used
+      placeholder: HeadsetAutoSwitch 0.1.0, Windows 11 24H2, HeadsetControl 4.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Tray icon → Open log. Paste the lines from around the problem.
+      render: text
+  - type: textarea
+    id: config
+    attributes:
+      label: Settings
+      description: Tray icon → Edit settings, if you changed anything.
+      render: ini

@@ -14,16 +14,20 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Test (.NET 8 and .NET Framework 4.8)
+        run: dotnet test tests/HeadsetAutoSwitch.Tests.csproj -c Release
       - name: Build
-        shell: cmd
-        run: build.cmd
+        run: dotnet build src/HeadsetAutoSwitch.csproj -c Release -o out
       - uses: actions/upload-artifact@v4
         with:
           name: HeadsetAutoSwitch
-          path: HeadsetAutoSwitch.exe
+          path: out/HeadsetAutoSwitch.exe
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" HeadsetAutoSwitch.exe --title "$GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" out/HeadsetAutoSwitch.exe --title "$GITHUB_REF_NAME" --notes-file <(awk -v v="${GITHUB_REF_NAME#v}" '$0 ~ "^## "v" " {f=1; next} /^## / && f {exit} f' CHANGELOG.md)
