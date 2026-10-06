@@ -70,7 +70,11 @@ internal sealed class TrayApp : ApplicationContext
                 switcher.NoteEndpointsChanged();
                 settleTimer.Change(EndpointSettleMs, System.Threading.Timeout.Infinite);
             },
-            defaultChanged: (flow, id) => OnUi(() => switcher.NoteDefaultChanged(flow, id, Targets())));
+            defaultChanged: (flow, id) =>
+            {
+                var changedAt = DateTime.UtcNow;
+                OnUi(() => switcher.NoteDefaultChanged(flow, id, changedAt, Targets()));
+            });
 
         UpdateTray();
         foreach (var monitor in monitors)
@@ -151,6 +155,11 @@ internal sealed class TrayApp : ApplicationContext
             headsetOn = null;
             battery = -1;
             Log.Write(next is null ? "no headset found" : "following " + next.Name);
+            // Its state may have been reported while another monitor was active.
+            if (next?.IsOn is { } on)
+            {
+                OnConnectionChanged(next, on, initial: true);
+            }
         }
 
         UpdateTray();

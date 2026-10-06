@@ -38,9 +38,12 @@ internal sealed class Alpha2Monitor : IHeadsetMonitor
     public string DefaultMic => "*Cloud Alpha 2 Wireless Chat*";
 
     private volatile bool stopping;
-    private volatile bool cancelRequested;
+    private volatile bool reading;          // a blocking read is in progress
+    private volatile bool cancelRequested;  // ...and we cancelled it on purpose
     private volatile SafeFileHandle? handle;
-    private bool linked; // only touched on the monitor thread
+    private volatile int linkState = -1;    // -1 unknown, 0 unlinked, 1 linked
+
+    public bool? IsOn => linkState < 0 ? null : linkState == 1;
 
     public void Start() => new Thread(Run) { IsBackground = true, Name = nameof(Alpha2Monitor) }.Start();
 
@@ -56,7 +59,8 @@ internal sealed class Alpha2Monitor : IHeadsetMonitor
     private void CancelRead()
     {
         var h = handle;
-        cancelRequested = true;
+        // Outside a read there's nothing to cancel: the next (re)open queries the state anyway.
+        cancelRequested = reading;
         try
         {
             if (h is { IsInvalid: false, IsClosed: false })
@@ -95,8 +99,10 @@ internal sealed class Alpha2Monitor : IHeadsetMonitor
             try
             {
                 // Input reports are queued per open handle, so the reply lands in ours.
-                linked = false;
+                linkState = -1;
+                cancelRequested = false;
                 Send(path!, 0x52, 0x01);
+                reading = true;
                 ReadReports(path!, h!);
             }
             catch (IOException ex)
@@ -110,8 +116,8 @@ internal sealed class Alpha2Monitor : IHeadsetMonitor
             }
             finally
             {
+                reading = false;
                 handle = null;
-                cancelRequested = false;
             }
 
             if (!stopping)
@@ -142,20 +148,28 @@ internal sealed class Alpha2Monitor : IHeadsetMonitor
                 case (0x53, 0x01): // reply to 52 01
                     OnLink(path, report[2] != 0, initial: true);
                     break;
-                case (0xFB, 0x13) when linked && report[3] <= 100: // battery level changed
+                case (0xFB, 0x13) when linkState == 1 && report[3] <= 100: // battery level changed
                     BatteryChanged?.Invoke(report[3]);
                     break;
-                case (0x51, 0x02) when linked && report[2] <= 100: // reply to 50 02 (ours or NGENUITY's)
+                case (0x51, 0x02) when linkState == 1 && report[2] <= 100: // reply to 50 02 (ours or NGENUITY's)
                     BatteryChanged?.Invoke(report[2]);
                     break;
             }
         }
     }
 
+    // Replies to other programs' 52 01 queries arrive here too, so act only on an actual change.
     private void OnLink(string path, bool isLinked, bool initial)
     {
-        linked = isLinked;
-        ConnectionChanged?.Invoke(isLinked, initial);
+        var previous = linkState;
+        var state = isLinked ? 1 : 0;
+        if (previous == state)
+        {
+            return;
+        }
+
+        linkState = state;
+        ConnectionChanged?.Invoke(isLinked, initial || previous < 0);
         if (isLinked)
         {
             Send(path, 0x50, 0x02);

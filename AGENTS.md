@@ -56,8 +56,10 @@ device changes are queued on `AudioSwitcher` so a quick off/on is never applied 
 - **The connection state is queried (`52 01`) every time the HID handle is (re)opened**, because the
   push notification only fires on change: at startup, after sleep, after the base station is
   re-plugged.
-- **HeadsetControl "offline" vs timeout:** only HeadsetControl's offline error means "headset off";
-  timeouts and other errors must not switch anything.
+- **HeadsetControl "off" vs errors:** a headset is off when the battery status is
+  `BATTERY_UNAVAILABLE` with HeadsetControl's "offline" error *or with no error at all* (some
+  drivers, e.g. Audeze Maxwell, report it that way). Timeouts and other errors must not switch
+  anything, and a failed run must not change the state.
 - **Settings use `*` wildcards on Windows endpoint names**, not device IDs: IDs change when drivers
   are reinstalled.
 - **Two separate states in `TrayApp`:** `headsetOn` is what the headset reports, `routedToHeadset` is

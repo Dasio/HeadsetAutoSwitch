@@ -81,6 +81,14 @@ public sealed class ConfigTests : IDisposable
     public void HeadsetControlCanBeTurnedOff(string value) =>
         Assert.Null(Load($"HeadsetControl = {value}\n", out _).HeadsetControl);
 
+    [Theory]
+    [InlineData("auto")]
+    [InlineData("on")]
+    [InlineData("yes")]
+    [InlineData("")]
+    public void HeadsetControlCanBeTurnedOn(string value) =>
+        Assert.Equal("auto", Load($"HeadsetControl = {value}\n", out _).HeadsetControl);
+
     [Fact]
     public void HeadsetControlPathThatDoesNotExistWarnsAndTurnsItOff()
     {

@@ -43,8 +43,8 @@ internal sealed record Config
         "",
         "# Built-in support for the HyperX Cloud Alpha 2 Wireless (instant, no extra software): on/off.",
         "Alpha2 = on",
-        "# Other headsets through HeadsetControl: auto (headsetcontrol.exe next to this app, in its",
-        "# data folder, or on PATH), off, or the full path to headsetcontrol.exe.",
+        "# Other headsets through HeadsetControl: on (looks for headsetcontrol.exe next to this app, in",
+        "# its data folder, or on PATH), off, or the full path to headsetcontrol.exe.",
         "HeadsetControl = auto",
         "# Seconds between HeadsetControl checks (2-3600), and extra arguments (e.g. -d to pick a device).",
         "HeadsetControlInterval = 5",
@@ -93,14 +93,12 @@ internal sealed record Config
         string? HeadsetControlSetting()
         {
             var value = Text(nameof(HeadsetControl), "auto");
-            if (value.Length == 0 || value.Equals("auto", StringComparison.OrdinalIgnoreCase))
+            switch (value.ToLowerInvariant())
             {
-                return "auto";
-            }
-
-            if (value.Equals("off", StringComparison.OrdinalIgnoreCase) || value.Equals("false", StringComparison.OrdinalIgnoreCase))
-            {
-                return null;
+                case "" or "auto" or "on" or "true" or "yes" or "1":
+                    return "auto";
+                case "off" or "false" or "no" or "0":
+                    return null;
             }
 
             if (File.Exists(value))

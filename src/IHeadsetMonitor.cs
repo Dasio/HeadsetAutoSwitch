@@ -19,6 +19,9 @@ internal interface IHeadsetMonitor : IDisposable
 
     string Name { get; }
 
+    /// <summary>The last known state (true = on), or null when not known yet.</summary>
+    bool? IsOn { get; }
+
     /// <summary>Output device name pattern used when the HeadsetOutput setting is empty.</summary>
     string DefaultOutput { get; }
 

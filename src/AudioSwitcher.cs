@@ -36,8 +36,11 @@ internal sealed class AudioSwitcher : IDisposable
 
     private readonly BlockingCollection<Action> work = new();
     private readonly Thread thread;
-    private readonly string?[] lastSetByUs = new string?[2]; // per AudioFlow, worker thread only
     private long endpointsChangedAtTicks;
+
+    // Per AudioFlow, worker thread only.
+    private readonly (string? Id, DateTime At)[] lastSetByUs = new (string?, DateTime)[2];
+    private readonly string?[] automaticDefault = new string?[2]; // last default Windows picked by itself
 
     public AudioSwitcher()
     {
@@ -49,9 +52,12 @@ internal sealed class AudioSwitcher : IDisposable
                 {
                     job();
                 }
-                catch (Exception ex) when (ex is COMException or IOException or UnauthorizedAccessException)
+#pragma warning disable CA1031 // The worker must survive anything a device change throws (e.g. a device
+                               // vanishing mid-call surfaces as ArgumentException via ThrowExceptionForHR).
+                catch (Exception ex)
+#pragma warning restore CA1031
                 {
-                    Log.Write("  audio change failed: " + ex.Message);
+                    Log.Write($"  audio change failed: {ex.GetType().Name}: {ex.Message}");
                 }
             }
         })
@@ -83,21 +89,34 @@ internal sealed class AudioSwitcher : IDisposable
             done(result);
         });
 
-    /// <summary>Learns the user's speakers when they pick a non-headset device in Windows.</summary>
-    public void NoteDefaultChanged(AudioFlow flow, string deviceId, SwitchTargets targets) =>
+    /// <summary>
+    /// Learns the user's speakers when they pick a non-headset device in Windows.
+    /// <paramref name="changedAt"/> is when Windows reported the change (UTC), not when this runs.
+    /// </summary>
+    public void NoteDefaultChanged(AudioFlow flow, string deviceId, DateTime changedAt, SwitchTargets targets)
+    {
+        var endpointsChangedAt = new DateTime(Interlocked.Read(ref endpointsChangedAtTicks));
         work.Add(() =>
         {
-            var automatic = DateTime.UtcNow - new DateTime(Interlocked.Read(ref endpointsChangedAtTicks)) < AutomaticChangeWindow;
-            if (deviceId == lastSetByUs[(int)flow] || automatic || Audio.ById(deviceId) is not { } device || targets.IsHeadset(device.Name))
+            var (ourId, ourAt) = lastSetByUs[(int)flow];
+            if (deviceId == ourId && changedAt - ourAt < AutomaticChangeWindow)
             {
+                return; // our own switch
+            }
+
+            if (changedAt - endpointsChangedAt < AutomaticChangeWindow)
+            {
+                automaticDefault[(int)flow] = deviceId; // Windows replacing a device that went away
                 return;
             }
 
-            if (Remember(flow, device.Name))
+            automaticDefault[(int)flow] = null;
+            if (Audio.ById(deviceId) is { } device && !targets.IsHeadset(device.Name) && Remember(flow, device.Name))
             {
                 Log.Write($"remembered {(flow == AudioFlow.Output ? "speakers" : "microphone")}: {device.Name}");
             }
         });
+    }
 
     /// <summary>Runs <paramref name="job"/> on the worker thread, after anything already queued.</summary>
     public void Post(Action job) => work.Add(job);
@@ -105,8 +124,11 @@ internal sealed class AudioSwitcher : IDisposable
     public void Dispose()
     {
         work.CompleteAdding();
-        thread.Join(TimeSpan.FromSeconds(2));
-        work.Dispose();
+        // If a device call still hangs, leave the collection to the (background) thread.
+        if (thread.Join(TimeSpan.FromSeconds(2)))
+        {
+            work.Dispose();
+        }
     }
 
     private SwitchResult ToHeadset(SwitchTargets t)
@@ -146,17 +168,19 @@ internal sealed class AudioSwitcher : IDisposable
         var device = Audio.SetDefault(flow, pattern);
         if (device is not null)
         {
-            lastSetByUs[(int)flow] = device.Value.Id;
+            lastSetByUs[(int)flow] = (device.Value.Id, DateTime.UtcNow);
         }
 
         return device;
     }
 
-    private static void RememberCurrentDefaults(SwitchTargets targets)
+    // The defaults just before the headset takes over are the speakers, unless Windows picked them
+    // itself as a fallback (see NoteDefaultChanged).
+    private void RememberCurrentDefaults(SwitchTargets targets)
     {
         foreach (var flow in new[] { AudioFlow.Output, AudioFlow.Input })
         {
-            if (Audio.GetDefault(flow) is { } device && !targets.IsHeadset(device.Name))
+            if (Audio.GetDefault(flow) is { } device && device.Id != automaticDefault[(int)flow] && !targets.IsHeadset(device.Name))
             {
                 Remember(flow, device.Name);
             }

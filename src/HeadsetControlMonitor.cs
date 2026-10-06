@@ -23,6 +23,7 @@ internal sealed class HeadsetControlMonitor : IHeadsetMonitor
     private readonly AutoResetEvent wake = new(false);
     private volatile bool stopping;
     private volatile HeadsetReading? last;
+    private volatile int onState = -1; // -1 unknown, 0 off, 1 on
 
     /// <param name="exe">Path to headsetcontrol.exe.</param>
     /// <param name="extraArgs">Extra arguments, e.g. <c>-d 1b1c:0a51</c> to pick one headset.</param>
@@ -41,6 +42,7 @@ internal sealed class HeadsetControlMonitor : IHeadsetMonitor
     public event Action<bool>? PresenceChanged;
 
     public string Name => last?.Name ?? "Headset";
+    public bool? IsOn => onState < 0 ? null : onState == 1;
     public string DefaultOutput => last is { Product.Length: > 0 } reading ? $"*{reading.Product}*" : "";
     public string DefaultMic => DefaultOutput;
 
@@ -51,12 +53,13 @@ internal sealed class HeadsetControlMonitor : IHeadsetMonitor
             .Concat((Environment.GetEnvironmentVariable("PATH") ?? "").Split(';'))
             .Select(folder => folder.Trim().Trim('"'))
             .Where(folder => folder.Length > 0);
+        // Relative PATH entries (".") would depend on the working directory; never run those.
         foreach (var folder in folders)
         {
             try
             {
                 var candidate = Path.Combine(folder, "headsetcontrol.exe");
-                if (File.Exists(candidate))
+                if (Path.IsPathRooted(folder) && File.Exists(candidate))
                 {
                     return candidate;
                 }
@@ -76,10 +79,22 @@ internal sealed class HeadsetControlMonitor : IHeadsetMonitor
     public void Dispose()
     {
         stopping = true;
-        wake.Set();
+        Wake();
     }
 
-    public void Refresh() => wake.Set();
+    public void Refresh() => Wake();
+
+    private void Wake()
+    {
+        try
+        {
+            wake.Set();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The thread has already finished.
+        }
+    }
 
     private void Run()
     {
@@ -97,6 +112,7 @@ internal sealed class HeadsetControlMonitor : IHeadsetMonitor
                     present = found;
                     // After the headset goes missing, report the state again when it's back.
                     on = null;
+                    onState = -1;
                     offReadings = 0;
                     Log.Write(found ? $"HeadsetControl: found {reading!.Name}" : "HeadsetControl: no supported headset, waiting");
                     PresenceChanged?.Invoke(found);
@@ -111,6 +127,7 @@ internal sealed class HeadsetControlMonitor : IHeadsetMonitor
                     {
                         var initial = on is null;
                         on = isOn;
+                        onState = isOn ? 1 : 0;
                         ConnectionChanged?.Invoke(isOn, initial);
                     }
 
