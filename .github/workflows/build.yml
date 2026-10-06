@@ -21,7 +21,7 @@ jobs:
         run: dotnet test tests/HeadsetAutoSwitch.Tests.csproj -c Release
       - name: Build
         run: dotnet build src/HeadsetAutoSwitch.csproj -c Release -o out
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: HeadsetAutoSwitch
           path: out/HeadsetAutoSwitch.exe
