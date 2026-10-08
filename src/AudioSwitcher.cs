@@ -13,10 +13,12 @@ internal sealed record SwitchTargets(
     string HeadsetOutputPreferred,
     string HeadsetMic,
     string SpeakersOutput,
-    string SpeakersMic)
+    string SpeakersMic,
+    string IgnoreAsSpeakers)
 {
+    /// <summary>Headset devices and headset software's virtual devices: never "the speakers".</summary>
     public bool IsHeadset(string deviceName) =>
-        new[] { HeadsetOutput, HeadsetOutputPreferred, HeadsetMic }.Any(pattern => DeviceName.Matches(deviceName, pattern));
+        new[] { HeadsetOutput, HeadsetOutputPreferred, HeadsetMic, IgnoreAsSpeakers }.Any(pattern => DeviceName.Matches(deviceName, pattern));
 }
 
 /// <param name="Output">The output that is now default, or null if nothing matched.</param>
@@ -75,8 +77,9 @@ internal sealed class AudioSwitcher : IDisposable
     /// Switches to the headset (<paramref name="on"/>) or back to the speakers, then calls
     /// <paramref name="done"/> on the worker thread. <paramref name="rememberSpeakers"/> records the
     /// current non-headset defaults first; only pass it when the headset really just turned on.
+    /// <paramref name="preferredUsable"/> says whether the preferred output may be used at all.
     /// </summary>
-    public void Switch(bool on, SwitchTargets targets, string reason, bool rememberSpeakers, Action<SwitchResult> done) =>
+    public void Switch(bool on, SwitchTargets targets, string reason, bool rememberSpeakers, Func<bool> preferredUsable, Action<SwitchResult> done) =>
         work.Add(() =>
         {
             Log.Write(reason);
@@ -85,7 +88,7 @@ internal sealed class AudioSwitcher : IDisposable
                 RememberCurrentDefaults(targets);
             }
 
-            var result = on ? ToHeadset(targets) : ToSpeakers(targets);
+            var result = on ? ToHeadset(targets, preferredUsable()) : ToSpeakers(targets);
             done(result);
         });
 
@@ -131,9 +134,9 @@ internal sealed class AudioSwitcher : IDisposable
         }
     }
 
-    private SwitchResult ToHeadset(SwitchTargets t)
+    private SwitchResult ToHeadset(SwitchTargets t, bool preferredUsable)
     {
-        var output = Set(AudioFlow.Output, t.HeadsetOutputPreferred) ?? Set(AudioFlow.Output, t.HeadsetOutput);
+        var output = (preferredUsable ? Set(AudioFlow.Output, t.HeadsetOutputPreferred) : null) ?? Set(AudioFlow.Output, t.HeadsetOutput);
         var mic = Set(AudioFlow.Input, t.HeadsetMic);
         Log.Write($"  output -> {output?.Name ?? "(unchanged)"} | mic -> {mic?.Name ?? "(unchanged)"}");
         if (output is null && t.HeadsetOutput.Length > 0)

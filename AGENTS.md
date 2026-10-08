@@ -46,9 +46,13 @@ device changes are queued on `AudioSwitcher` so a quick off/on is never applied 
 - **Endpoint changes are handled after a 1.5 s quiet period**, not immediately. HyperX NGENUITY
   enables its virtual devices about 0.5 s after its audio engine starts, in a burst of several
   changes; reacting to the first one picks the wrong device.
-- **NGENUITY's virtual devices only produce sound while NGENUITY runs.** That's why
-  `HeadsetOutputPreferred` is used only while that endpoint is active, with `HeadsetOutput` as the
-  fallback.
+- **NGENUITY's virtual devices only produce sound while NGENUITY's audio engine runs.** A clean
+  NGENUITY exit disables them (endpoint event), but if the engine dies they stay listed as active.
+  So `HeadsetOutputPreferred` is used only while the endpoint is active *and*
+  `HeadsetOutputPreferredProcess` runs; `ProcessExitWatcher` reports the exit without polling.
+  NGENUITY restarts its services by itself within seconds, so a short exit usually changes nothing.
+- **NGENUITY sets its own virtual microphone as the default when it starts.** That is not the user
+  picking a device, hence `IgnoreAsSpeakers` (default `NGENUITY*`).
 - **The Alpha 2 monitor blocks on a HID read instead of polling.** The base station pushes
   `FB 0A 01/00` on link changes. When NGENUITY runs it polls the same interface about 75 times a
   second and Windows delivers every input report to every open handle, so the read loop sees a lot

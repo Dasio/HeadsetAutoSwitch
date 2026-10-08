@@ -37,6 +37,7 @@ internal sealed class TrayApp : ApplicationContext
     private readonly HashSet<IHeadsetMonitor> present = [];
     private readonly System.Threading.Timer settleTimer;
     private readonly EndpointWatcher endpointWatcher;
+    private readonly ProcessExitWatcher preferredProcessWatcher;
 
     private Config config;
     private IHeadsetMonitor? active;   // the present monitor that drives switching
@@ -63,6 +64,11 @@ internal sealed class TrayApp : ApplicationContext
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
 
         settleTimer = new System.Threading.Timer(_ => OnUi(OnEndpointsSettled));
+        preferredProcessWatcher = new ProcessExitWatcher(() => OnUi(() =>
+        {
+            Log.Write($"{config.HeadsetOutputPreferredProcess} exited");
+            UpdatePreferredAvailability();
+        }));
         UpdatePreferredAvailability();
         endpointWatcher = new EndpointWatcher(
             endpointsChanged: () =>
@@ -198,14 +204,23 @@ internal sealed class TrayApp : ApplicationContext
         UpdatePreferredAvailability();
     }
 
+    // Called on the switcher thread: the preferred output exists and, if configured, its process runs.
+    private Func<bool> PreferredUsable()
+    {
+        var pattern = config.HeadsetOutputPreferred;
+        var process = config.HeadsetOutputPreferredProcess;
+        return () => Audio.IsActive(AudioFlow.Output, pattern) && (process.Length == 0 || preferredProcessWatcher.IsRunning(process));
+    }
+
     // The preferred output (e.g. NGENUITY's virtual device) appeared or disappeared while audio goes
     // to the headset: move to it, or off it before applications are left playing into a dead endpoint.
     private void UpdatePreferredAvailability()
     {
         var pattern = config.HeadsetOutputPreferred;
+        var usable = PreferredUsable();
         switcher.Post(() =>
         {
-            var available = Audio.IsActive(AudioFlow.Output, pattern);
+            var available = usable();
             if (available == preferredAvailable)
             {
                 return;
@@ -226,7 +241,7 @@ internal sealed class TrayApp : ApplicationContext
     {
         routedToHeadset = on;
         retryPending = false;
-        switcher.Switch(on, Targets(), reason, rememberSpeakers, result => OnUi(() =>
+        switcher.Switch(on, Targets(), reason, rememberSpeakers, PreferredUsable(), result => OnUi(() =>
         {
             // A newer switch may have been requested meanwhile; its result decides.
             if (routedToHeadset != on)
@@ -253,7 +268,8 @@ internal sealed class TrayApp : ApplicationContext
         HeadsetOutputPreferred: config.HeadsetOutputPreferred,
         HeadsetMic: config.HeadsetMic.Length > 0 ? config.HeadsetMic : active?.DefaultMic ?? "",
         SpeakersOutput: config.SpeakersOutput,
-        SpeakersMic: config.SpeakersMic);
+        SpeakersMic: config.SpeakersMic,
+        IgnoreAsSpeakers: config.IgnoreAsSpeakers);
 
     private void ReloadSettings()
     {
@@ -384,6 +400,7 @@ internal sealed class TrayApp : ApplicationContext
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         endpointWatcher.Dispose();
         settleTimer.Dispose();
+        preferredProcessWatcher.Dispose();
         foreach (var monitor in monitors)
         {
             monitor.Dispose();

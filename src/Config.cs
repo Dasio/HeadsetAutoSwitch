@@ -8,9 +8,13 @@ namespace HeadsetAutoSwitch;
 internal sealed record Config
 {
     public const string DefaultPreferredOutput = "NGENUITY - 8 Channel Spatial*";
+    public const string DefaultPreferredProcess = "hxn-srv-audio-engine";
+    public const string DefaultIgnoreAsSpeakers = "NGENUITY*";
 
     public string HeadsetOutput { get; init; } = "";
     public string HeadsetOutputPreferred { get; init; } = DefaultPreferredOutput;
+    public string HeadsetOutputPreferredProcess { get; init; } = DefaultPreferredProcess;
+    public string IgnoreAsSpeakers { get; init; } = DefaultIgnoreAsSpeakers;
     public string SpeakersOutput { get; init; } = "";
     public string HeadsetMic { get; init; } = "";
     public string SpeakersMic { get; init; } = "";
@@ -32,6 +36,9 @@ internal sealed record Config
         "# Preferred output while the headset is on, used whenever this device is active (e.g. HyperX",
         "# NGENUITY's virtual devices, which only exist while NGENUITY runs). Empty = always HeadsetOutput.",
         $"HeadsetOutputPreferred = {DefaultPreferredOutput}",
+        "# ...and only while this process runs (NGENUITY's audio engine: if it crashes, its devices stay",
+        "# listed but play nothing). Empty = no check.",
+        $"HeadsetOutputPreferredProcess = {DefaultPreferredProcess}",
         "# Output when the headset turns off. Empty = the last device you picked in Windows that isn't",
         "# the headset.",
         "SpeakersOutput = ",
@@ -40,6 +47,9 @@ internal sealed record Config
         "HeadsetMic = ",
         "# Microphone when the headset turns off. Empty = the last non-headset microphone you picked.",
         "SpeakersMic = ",
+        "# Devices that are never remembered as your speakers or microphone (headset software's own",
+        "# virtual devices).",
+        $"IgnoreAsSpeakers = {DefaultIgnoreAsSpeakers}",
         "",
         "# Built-in support for the HyperX Cloud Alpha 2 Wireless (instant, no extra software): on/off.",
         "Alpha2 = on",
@@ -132,6 +142,8 @@ internal sealed record Config
             HeadsetOutput = Text(nameof(HeadsetOutput), defaults.HeadsetOutput),
             // "HeadsetOutputWithNgenuity" is what the first, Alpha 2 only version called it.
             HeadsetOutputPreferred = Text(nameof(HeadsetOutputPreferred), Text("HeadsetOutputWithNgenuity", defaults.HeadsetOutputPreferred)),
+            HeadsetOutputPreferredProcess = Text(nameof(HeadsetOutputPreferredProcess), defaults.HeadsetOutputPreferredProcess),
+            IgnoreAsSpeakers = Text(nameof(IgnoreAsSpeakers), defaults.IgnoreAsSpeakers),
             SpeakersOutput = Text(nameof(SpeakersOutput), defaults.SpeakersOutput),
             HeadsetMic = Text(nameof(HeadsetMic), defaults.HeadsetMic),
             SpeakersMic = Text(nameof(SpeakersMic), defaults.SpeakersMic),

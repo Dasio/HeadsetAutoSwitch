@@ -62,9 +62,11 @@ Right-click the tray icon → **Edit settings** (`%LOCALAPPDATA%\HeadsetAutoSwit
 | --- | --- | --- |
 | `HeadsetOutput` | *(guessed from the headset name)* | Output while the headset is on |
 | `HeadsetOutputPreferred` | `NGENUITY - 8 Channel Spatial*` | Preferred output whenever this device is active |
+| `HeadsetOutputPreferredProcess` | `hxn-srv-audio-engine` | ...and only while this process runs (empty = no check) |
 | `SpeakersOutput` | *(last one you picked)* | Output when the headset turns off |
 | `HeadsetMic` | *(guessed from the headset name)* | Microphone while the headset is on |
 | `SpeakersMic` | *(last one you picked)* | Microphone when the headset turns off |
+| `IgnoreAsSpeakers` | `NGENUITY*` | Devices never remembered as your speakers or microphone |
 | `Alpha2` | `on` | Built-in Cloud Alpha 2 support (`on`/`off`) |
 | `HeadsetControl` | `auto` | `auto`, `off`, or a path to `headsetcontrol.exe` |
 | `HeadsetControlInterval` | `5` | Seconds between HeadsetControl checks (2–3600) |

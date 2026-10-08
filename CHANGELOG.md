@@ -9,6 +9,8 @@
 - HeadsetControl: headsets that report "off" without an error (Audeze Maxwell, ASTRO A50 Gen 4) now
   switch back; a failed check no longer leaves the app stuck on "waiting".
 - Cloud Alpha 2: battery updates while the headset is on.
+- HyperX NGENUITY: its Spatial device is only used while its audio engine runs (a crashed engine
+  leaves the device listed but silent); its virtual microphone is never remembered as yours.
 - Settings: `on`/`off`/`true`/`false`/`yes`/`no` all work; invalid values are reported in the log.
 
 ## 0.1.0 (2026-10-07)
