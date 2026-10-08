@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-10-08)
 
 - Rewritten with current C# (still .NET Framework 4.8, nothing to install); unit tests.
 - Switches are applied strictly in order; a headset state read at startup can no longer be missed.
@@ -9,6 +9,8 @@
 - HeadsetControl: headsets that report "off" without an error (Audeze Maxwell, ASTRO A50 Gen 4) now
   switch back; a failed check no longer leaves the app stuck on "waiting".
 - Cloud Alpha 2: battery updates while the headset is on.
+- Sleep: no crash on resume; the link drop and reconnect around sleep no longer bounces the audio or
+  undoes a manual choice.
 - HyperX NGENUITY: its Spatial device is only used while its audio engine runs (a crashed engine
   leaves the device listed but silent); its virtual microphone is never remembered as yours.
 - Settings: `on`/`off`/`true`/`false`/`yes`/`no` all work; invalid values are reported in the log.

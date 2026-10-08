@@ -9,7 +9,7 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <RootNamespace>HeadsetAutoSwitch</RootNamespace>
     <AssemblyName>HeadsetAutoSwitch</AssemblyName>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Product>HeadsetAutoSwitch</Product>
     <Description>Switches Windows audio when a wireless headset turns on or off</Description>
     <Copyright>Copyright (c) 2026 Dasio</Copyright>
