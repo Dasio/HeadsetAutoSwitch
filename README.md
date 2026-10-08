@@ -10,6 +10,8 @@ on**, and back to your **speakers when you turn it off**: output and microphone,
 Works with the **HyperX Cloud Alpha 2 Wireless** out of the box, and with many SteelSeries, Logitech,
 Corsair and other wireless headsets through HeadsetControl.
 
+![Tray menu: status with battery level, current output, switch and settings entries](.github/assets/tray-menu.png)
+
 ## Why
 
 Wireless headsets with a USB dongle or base station have a problem: the dongle stays plugged in,
