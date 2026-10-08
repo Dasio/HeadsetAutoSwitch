@@ -25,6 +25,11 @@ internal sealed class HeadsetControlMonitor : IHeadsetMonitor
     private volatile HeadsetReading? last;
     private volatile int onState = -1; // -1 unknown, 0 off, 1 on
 
+    // Monitor thread only.
+    private bool? present;
+    private bool? on;
+    private int offReadings;
+
     /// <param name="exe">Path to headsetcontrol.exe.</param>
     /// <param name="extraArgs">Extra arguments, e.g. <c>-d 1b1c:0a51</c> to pick one headset.</param>
     /// <param name="intervalSeconds">Seconds between checks.</param>
@@ -99,53 +104,70 @@ internal sealed class HeadsetControlMonitor : IHeadsetMonitor
     private void Run()
     {
         Log.Write("HeadsetControl: using " + exe);
-        bool? present = null, on = null;
-        var offReadings = 0;
         while (!stopping)
         {
-            // A failed run (timeout, crash, unreadable output) tells nothing: keep the current state.
-            if (TryPoll(out var reading))
+            try
             {
-                var found = reading is not null;
-                if (present != found)
-                {
-                    present = found;
-                    // After the headset goes missing, report the state again when it's back.
-                    on = null;
-                    onState = -1;
-                    offReadings = 0;
-                    Log.Write(found ? $"HeadsetControl: found {reading!.Name}" : "HeadsetControl: no supported headset, waiting");
-                    PresenceChanged?.Invoke(found);
-                }
-
-                if (reading is { On: { } isOn })
-                {
-                    last = reading;
-                    // A single "off" can be a hiccup while the headset reconnects: wait for a second one.
-                    offReadings = isOn ? 0 : offReadings + 1;
-                    if ((isOn || offReadings >= 2 || on is null) && on != isOn)
-                    {
-                        var initial = on is null;
-                        on = isOn;
-                        onState = isOn ? 1 : 0;
-                        ConnectionChanged?.Invoke(isOn, initial);
-                    }
-
-                    if (reading.Battery >= 0)
-                    {
-                        BatteryChanged?.Invoke(reading.Battery);
-                    }
-                }
-                else if (reading is not null)
-                {
-                    last = reading;
-                }
+                Check();
+            }
+#pragma warning disable CA1031 // A monitor must never take the app down; log it and try again.
+            catch (Exception ex)
+#pragma warning restore CA1031
+            {
+                Log.Write("HeadsetControl: unexpected error: " + ex);
             }
 
             wake.WaitOne(intervalMs);
         }
 
         wake.Dispose();
+    }
+
+    private void Check()
+    {
+        // A failed run (timeout, crash, unreadable output) tells nothing: keep the current state.
+        if (!TryPoll(out var reading))
+        {
+            return;
+        }
+
+        var found = reading is not null;
+        if (present != found)
+        {
+            present = found;
+            // After the headset goes missing, report the state again when it's back.
+            on = null;
+            onState = -1;
+            offReadings = 0;
+            Log.Write(found ? $"HeadsetControl: found {reading!.Name}" : "HeadsetControl: no supported headset, waiting");
+            PresenceChanged?.Invoke(found);
+        }
+
+        if (reading is null)
+        {
+            return;
+        }
+
+        last = reading;
+        if (reading.On is not { } isOn)
+        {
+            return;
+        }
+
+        // A single "off" can be a hiccup while the headset reconnects: wait for a second one.
+        offReadings = isOn ? 0 : offReadings + 1;
+        if ((isOn || offReadings >= 2 || on is null) && on != isOn)
+        {
+            var initial = on is null;
+            on = isOn;
+            onState = isOn ? 1 : 0;
+            ConnectionChanged?.Invoke(isOn, initial);
+        }
+
+        if (reading.Battery >= 0)
+        {
+            BatteryChanged?.Invoke(reading.Battery);
+        }
     }
 
     /// <returns>False when HeadsetControl couldn't be asked; otherwise the reading (null = no headset).</returns>

@@ -105,14 +105,21 @@ internal sealed class Alpha2Monitor : IHeadsetMonitor
                 reading = true;
                 ReadReports(path!, h!);
             }
-            catch (IOException ex)
+            catch (Exception ex) when (ex is OperationCanceledException or IOException)
             {
-                // A cancelled read (Stop/Refresh) also ends up here; anything else means the base
-                // station was unplugged or the handle went stale across sleep.
+                // .NET Framework reports a read cancelled by Stop/Refresh (e.g. on resume from sleep)
+                // as OperationCanceledException; an IOException means the base station was unplugged
+                // or the handle went stale across sleep.
                 if (!cancelRequested)
                 {
                     Log.Write("Cloud Alpha 2: lost the base station: " + ex.Message);
                 }
+            }
+#pragma warning disable CA1031 // A monitor must never take the app down; log it and reconnect.
+            catch (Exception ex)
+#pragma warning restore CA1031
+            {
+                Log.Write("Cloud Alpha 2: unexpected error, reconnecting: " + ex);
             }
             finally
             {
