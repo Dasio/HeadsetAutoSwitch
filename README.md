@@ -1,5 +1,9 @@
 # HeadsetAutoSwitch
 
+[![build](https://github.com/Dasio/HeadsetAutoSwitch/actions/workflows/build.yml/badge.svg)](https://github.com/Dasio/HeadsetAutoSwitch/actions/workflows/build.yml)
+[![release](https://img.shields.io/github/v/release/Dasio/HeadsetAutoSwitch)](https://github.com/Dasio/HeadsetAutoSwitch/releases/latest)
+[![license](https://img.shields.io/github/license/Dasio/HeadsetAutoSwitch)](LICENSE)
+
 Automatically switches the Windows default audio device to your **wireless headset when you turn it
 on**, and back to your **speakers when you turn it off**: output and microphone, no hotkeys.
 
@@ -40,7 +44,7 @@ instead of instantly.
 
 ## Install
 
-1. Download `HeadsetAutoSwitch.exe` from [Releases](../../releases) and put it in a folder of your
+1. Download `HeadsetAutoSwitch.exe` from the [latest release](https://github.com/Dasio/HeadsetAutoSwitch/releases/latest) and put it in a folder of your
    choice (e.g. `%LOCALAPPDATA%\HeadsetAutoSwitch`).
 2. Run it. Right-click the tray icon → **Start with Windows**.
 3. For headsets other than the Cloud Alpha 2: put
