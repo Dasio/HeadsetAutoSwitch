@@ -30,4 +30,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" out/HeadsetAutoSwitch.exe --title "$GITHUB_REF_NAME" --notes-file <(awk -v v="${GITHUB_REF_NAME#v}" '$0 ~ "^## "v" " {f=1; next} /^## / && f {exit} f' CHANGELOG.md)
+        # Release notes = this version's section of CHANGELOG.md
+        run: |
+          awk -v v="${GITHUB_REF_NAME#v}" '$0 ~ "^## "v" " {f=1; next} /^## / && f {exit} f' CHANGELOG.md > release-notes.md
+          gh release create "$GITHUB_REF_NAME" out/HeadsetAutoSwitch.exe --title "$GITHUB_REF_NAME" --notes-file release-notes.md
