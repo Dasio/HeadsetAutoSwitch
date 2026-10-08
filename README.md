@@ -67,7 +67,7 @@ Right-click the tray icon → **Edit settings** (`%LOCALAPPDATA%\HeadsetAutoSwit
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `HeadsetOutput` | *(guessed from the headset name)* | Output while the headset is on |
-| `HeadsetOutputPreferred` | `NGENUITY - 8 Channel Spatial*` | Preferred output whenever this device is active |
+| `HeadsetOutputPreferred` | `NGENUITY - 8 Channel Spatial*` | Preferred output whenever this device is active (use `12` if that's the NGENUITY device you use) |
 | `HeadsetOutputPreferredProcess` | `hxn-srv-audio-engine` | ...and only while this process runs (empty = no check) |
 | `SpeakersOutput` | *(last one you picked)* | Output when the headset turns off |
 | `HeadsetMic` | *(guessed from the headset name)* | Microphone while the headset is on |
@@ -101,6 +101,9 @@ The base station is two USB devices: an audio device (`03f0:0abe`) and a control
 The control chip's vendor HID interface (interface 2, usage page `0xff13`) sends `FB 0A 01` when the
 headset connects and `FB 0A 00` when it disconnects, and answers `52 01` with `53 01 <connected>`.
 The app waits on that interface (no polling) and asks once at startup and after sleep.
+
+If your Cloud Alpha 2 isn't detected ("base station not found" in the log), it may be a hardware
+revision with a different USB ID: please open an issue with the IDs from Device Manager.
 
 Support for this headset in HeadsetControl itself (battery, sidetone, chat-mix, equalizer presets)
 has been submitted as [Sapd/HeadsetControl#590](https://github.com/Sapd/HeadsetControl/pull/590).

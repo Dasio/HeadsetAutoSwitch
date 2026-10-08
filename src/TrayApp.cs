@@ -63,7 +63,6 @@ internal sealed class TrayApp : ApplicationContext
     public TrayApp()
     {
         Directory.CreateDirectory(AppPaths.DataDir);
-        MigrateFromAlpha2AutoSwitch();
         config = LoadConfig();
         ui.CreateControl(); // gives BeginInvoke a window on this thread
 
@@ -438,29 +437,6 @@ internal sealed class TrayApp : ApplicationContext
         else
         {
             key.DeleteValue(RunValue, throwOnMissingValue: false);
-        }
-    }
-
-    // The first version was called Alpha2AutoSwitch: carry its settings and autostart over once.
-    private static void MigrateFromAlpha2AutoSwitch()
-    {
-        var oldDir = Path.Combine(Path.GetDirectoryName(AppPaths.DataDir)!, "Alpha2AutoSwitch");
-        foreach (var (oldFile, newFile) in new[] { ("config.ini", AppPaths.Config), ("state.ini", AppPaths.State) })
-        {
-            var source = Path.Combine(oldDir, oldFile);
-            if (File.Exists(source) && !File.Exists(newFile))
-            {
-                File.Copy(source, newFile);
-                Log.Write($"copied {oldFile} from Alpha2AutoSwitch");
-            }
-        }
-
-        using var key = Registry.CurrentUser.OpenSubKey(RunKey, writable: true);
-        if (key?.GetValue("Alpha2AutoSwitch") is not null)
-        {
-            key.DeleteValue("Alpha2AutoSwitch");
-            key.SetValue(RunValue, $"\"{Application.ExecutablePath}\"");
-            Log.Write("moved start with Windows over from Alpha2AutoSwitch");
         }
     }
 

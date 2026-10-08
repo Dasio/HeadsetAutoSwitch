@@ -99,11 +99,6 @@ public sealed class ConfigTests : IDisposable
     }
 
     [Fact]
-    public void FirstVersionsSettingNameStillWorks() =>
-        Assert.Equal("NGENUITY - 12 Channel Spatial*",
-            Load("HeadsetOutputWithNgenuity = NGENUITY - 12 Channel Spatial*\n", out _).HeadsetOutputPreferred);
-
-    [Fact]
     public void ValuesAreTrimmedAndCommentsIgnored()
     {
         var config = Load("# SpeakersOutput = commented\n  SpeakersOutput =  Speakers (Realtek*  \n", out _);

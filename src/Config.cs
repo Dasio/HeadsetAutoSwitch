@@ -34,7 +34,8 @@ internal sealed record Config
         "# Output while the headset is on. Empty = guess from the headset's name.",
         "HeadsetOutput = ",
         "# Preferred output while the headset is on, used whenever this device is active (e.g. HyperX",
-        "# NGENUITY's virtual devices, which only exist while NGENUITY runs). Empty = always HeadsetOutput.",
+        "# NGENUITY's virtual devices, which only exist while NGENUITY runs; if you use its 12 channel",
+        "# device, change 8 to 12). Empty = always HeadsetOutput.",
         $"HeadsetOutputPreferred = {DefaultPreferredOutput}",
         "# ...and only while this process runs (NGENUITY's audio engine: if it crashes, its devices stay",
         "# listed but play nothing). Empty = no check.",
@@ -140,8 +141,7 @@ internal sealed record Config
         var config = new Config
         {
             HeadsetOutput = Text(nameof(HeadsetOutput), defaults.HeadsetOutput),
-            // "HeadsetOutputWithNgenuity" is what the first, Alpha 2 only version called it.
-            HeadsetOutputPreferred = Text(nameof(HeadsetOutputPreferred), Text("HeadsetOutputWithNgenuity", defaults.HeadsetOutputPreferred)),
+            HeadsetOutputPreferred = Text(nameof(HeadsetOutputPreferred), defaults.HeadsetOutputPreferred),
             HeadsetOutputPreferredProcess = Text(nameof(HeadsetOutputPreferredProcess), defaults.HeadsetOutputPreferredProcess),
             IgnoreAsSpeakers = Text(nameof(IgnoreAsSpeakers), defaults.IgnoreAsSpeakers),
             SpeakersOutput = Text(nameof(SpeakersOutput), defaults.SpeakersOutput),
