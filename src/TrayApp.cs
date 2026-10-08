@@ -24,6 +24,12 @@ internal sealed class TrayApp : ApplicationContext
     // starts; deciding on the first change picks the wrong device.
     private const int EndpointSettleMs = 1500;
 
+    // Wireless links drop during sleep and come back about a second after waking, often several
+    // seconds before Windows reports the resume. From suspend until things settle, on/off reports are
+    // held and only an end state that differs from before sleep is acted on.
+    private const int ResumeSettleMs = 15_000;
+    private const int MissingResumeFallbackMs = 30_000; // in case Windows never reports the resume
+
     private static readonly Color OnColor = Color.FromArgb(60, 180, 90);
     private static readonly Color OffColor = Color.FromArgb(140, 140, 140);
     private static readonly Color MissingColor = Color.FromArgb(200, 120, 40);
@@ -36,6 +42,7 @@ internal sealed class TrayApp : ApplicationContext
     private readonly List<IHeadsetMonitor> monitors = []; // in order of preference
     private readonly HashSet<IHeadsetMonitor> present = [];
     private readonly System.Threading.Timer settleTimer;
+    private readonly System.Threading.Timer resumeTimer;
     private readonly EndpointWatcher endpointWatcher;
     private readonly ProcessExitWatcher preferredProcessWatcher;
 
@@ -43,6 +50,9 @@ internal sealed class TrayApp : ApplicationContext
     private IHeadsetMonitor? active;   // the present monitor that drives switching
     private bool? headsetOn;           // what the active monitor last reported; null = not yet
     private bool? routedToHeadset;     // where we last sent the audio (manual switches included)
+    private bool? headsetOnBeforeSleep;
+    private bool sleeping;             // from suspend until ResumeSettleMs after waking up
+    private DateTime sleepSettlesAt;   // when the hold may end; a timer firing earlier is stale
     private bool retryPending;         // last switch couldn't reach a device; retry when devices change
     private int battery = -1;
     private string? currentOutput;
@@ -64,6 +74,7 @@ internal sealed class TrayApp : ApplicationContext
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
 
         settleTimer = new System.Threading.Timer(_ => OnUi(OnEndpointsSettled));
+        resumeTimer = new System.Threading.Timer(_ => OnUi(OnResumeSettled));
         preferredProcessWatcher = new ProcessExitWatcher(() => OnUi(() =>
         {
             Log.Write($"{config.HeadsetOutputPreferredProcess} exited");
@@ -181,7 +192,43 @@ internal sealed class TrayApp : ApplicationContext
         }
 
         headsetOn = on;
+        if (sleeping)
+        {
+            Log.Write($"{monitor.Name} {(on ? "ON" : "OFF")} (around sleep, waiting for it to settle)");
+            if (sleepSettlesAt == DateTime.MaxValue)
+            {
+                // Still waiting for Windows to report the resume; don't hold forever if it never does.
+                StartSleepSettle(MissingResumeFallbackMs);
+            }
+
+            UpdateTray();
+            return;
+        }
+
         Switch(on, $"{monitor.Name} {(on ? "ON" : "OFF")}{(initial ? " (state at connect)" : "")}", rememberSpeakers: on);
+    }
+
+    private void StartSleepSettle(int delayMs)
+    {
+        sleepSettlesAt = DateTime.UtcNow.AddMilliseconds(delayMs);
+        resumeTimer.Change(delayMs, System.Threading.Timeout.Infinite);
+    }
+
+    private void OnResumeSettled()
+    {
+        // A timer started for an earlier sleep can fire right after the next wake-up: ignore it.
+        if (!sleeping || DateTime.UtcNow < sleepSettlesAt.AddMilliseconds(-250))
+        {
+            return;
+        }
+
+        sleeping = false;
+        // Same state as before sleep (the usual link drop and reconnect): leave the audio where it
+        // was, including a manual choice.
+        if (headsetOn is { } on && on != headsetOnBeforeSleep)
+        {
+            Switch(on, $"{active?.Name} {(on ? "ON" : "OFF")} (changed during sleep)", rememberSpeakers: on);
+        }
     }
 
     private void OnBatteryChanged(IHeadsetMonitor monitor, int percent)
@@ -278,17 +325,40 @@ internal sealed class TrayApp : ApplicationContext
         UpdatePreferredAvailability();
     }
 
-    private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
+    // Raised on SystemEvents' own thread.
+    private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e) => OnUi(() =>
     {
-        if (e.Mode == PowerModes.Resume)
+        switch (e.Mode)
         {
-            Log.Write("resumed from sleep");
-            foreach (var monitor in monitors)
-            {
-                monitor.Refresh();
-            }
+            case PowerModes.Suspend:
+                // Asleep again before the last wake-up settled: keep the state from before that sleep.
+                if (!sleeping)
+                {
+                    headsetOnBeforeSleep = headsetOn;
+                }
+
+                sleeping = true;
+                sleepSettlesAt = DateTime.MaxValue;
+                resumeTimer.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+                Log.Write("going to sleep");
+                break;
+            case PowerModes.Resume:
+                Log.Write("resumed from sleep");
+                if (!sleeping)
+                {
+                    headsetOnBeforeSleep = headsetOn; // a resume without a suspend notification
+                }
+
+                sleeping = true;
+                StartSleepSettle(ResumeSettleMs);
+                foreach (var monitor in monitors)
+                {
+                    monitor.Refresh();
+                }
+
+                break;
         }
-    }
+    });
 
     private void OnUi(Action action)
     {
@@ -400,6 +470,7 @@ internal sealed class TrayApp : ApplicationContext
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         endpointWatcher.Dispose();
         settleTimer.Dispose();
+        resumeTimer.Dispose();
         preferredProcessWatcher.Dispose();
         foreach (var monitor in monitors)
         {

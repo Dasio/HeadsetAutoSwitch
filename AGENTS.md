@@ -72,6 +72,10 @@ device changes are queued on `AudioSwitcher` so a quick off/on is never applied 
 - **Learning the speakers:** a default-device change is remembered as "the speakers" only if the app
   didn't make it, it isn't a headset device, and it didn't happen within 3 s of an endpoint
   appearing/disappearing (that's Windows picking a fallback, e.g. HDMI audio).
+- **On/off reports are held from suspend until 15 s after resume.** Wireless links drop during sleep
+  and relink about a second after waking, and Windows' resume notification can arrive several seconds
+  *after* those reports. Switching on them would bounce the audio and undo a manual choice; only an
+  end state that differs from before sleep is applied.
 - **A switch that can't reach its device is retried** when endpoints change (e.g. monitor speakers
   waking up).
 
